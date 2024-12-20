@@ -54,6 +54,20 @@ _DEFAULTS = dict(
         rounding=2,
         min_max=(2, 16),
         group="evaluation"),
+    mask_opacity=dict(
+        default=30,
+        info="The opacity of the mask overlay in the training preview. Lower values are more "
+             "transparent.",
+        datatype=int,
+        rounding=2,
+        min_max=(0, 100),
+        group="evaluation"),
+    mask_color=dict(
+        default="#ff0000",
+        choices="colorchooser",
+        info="The RGB hex color to use for the mask overlay in the training preview.",
+        datatype=str,
+        group="evaluation"),
     zoom_amount=dict(
         default=5,
         info="Percentage amount to randomly zoom each training image in and out.",
@@ -88,7 +102,7 @@ _DEFAULTS = dict(
     color_lightness=dict(
         default=30,
         info="Percentage amount to randomly alter the lightness of each training image.\n"
-             "NB: This is ignored if the 'no-flip' option is enabled",
+             "NB: This is ignored if the 'no-augment-color' option is enabled",
         datatype=int,
         rounding=1,
         min_max=(0, 75),
@@ -96,8 +110,8 @@ _DEFAULTS = dict(
     color_ab=dict(
         default=8,
         info="Percentage amount to randomly alter the 'a' and 'b' colors of the L*a*b* color "
-             "space of each training image.\nNB: This is ignored if the 'no-flip' option is "
-             "enabled",
+             "space of each training image.\nNB: This is ignored if the 'no-augment-color' option"
+             "is enabled",
         datatype=int,
         rounding=1,
         min_max=(0, 50),

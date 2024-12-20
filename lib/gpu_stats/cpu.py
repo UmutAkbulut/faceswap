@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 """ Dummy functions for running faceswap on CPU. """
+from ._base import _GPUStats
 
 
-from typing import List
-
-from ._base import GPUStats
-
-
-class CPUStats(GPUStats):
+class CPUStats(_GPUStats):
     """ Holds information and statistics about the CPU on the currently running system.
 
     Notes
     -----
-    The information held here is not  useful, but GPUStats is dynamically imported depending on the
-    backend used, so we need to make sure this class is available for Faceswap run on the CPU
+    The information held here is not  useful, but _GPUStats is dynamically imported depending on
+    the backend used, so we need to make sure this class is available for Faceswap run on the CPU
     Backend.
 
-    The base :class:`GPUStats` handles the dummying in of information when no GPU is detected.
+    The base :class:`_GPUStats` handles the dummying in of information when no GPU is detected.
 
     Parameters
     ----------
@@ -49,7 +45,7 @@ class CPUStats(GPUStats):
         list
             An empty list for CPU Backends
         """
-        handles = []
+        handles: list = []
         self._log("debug", f"GPU Handles found: {len(handles)}")
         return handles
 
@@ -65,7 +61,7 @@ class CPUStats(GPUStats):
         self._log("debug", f"GPU Driver: {driver}")
         return driver
 
-    def _get_device_names(self) -> List[str]:
+    def _get_device_names(self) -> list[str]:
         """ Obtain the list of names of connected GPUs as identified in :attr:`_handles`.
 
         Returns
@@ -73,11 +69,11 @@ class CPUStats(GPUStats):
         list
             An empty list for CPU backends
         """
-        names = []
+        names: list[str] = []
         self._log("debug", f"GPU Devices: {names}")
         return names
 
-    def _get_vram(self) -> List[float]:
+    def _get_vram(self) -> list[int]:
         """ Obtain the RAM in Megabytes for the running system.
 
         Returns
@@ -85,11 +81,11 @@ class CPUStats(GPUStats):
         list
             An empty list for CPU backends
         """
-        vram = []
+        vram: list[int] = []
         self._log("debug", f"GPU VRAM: {vram}")
         return vram
 
-    def _get_free_vram(self) -> List[float]:
+    def _get_free_vram(self) -> list[int]:
         """ Obtain the amount of RAM that is available, in Megabytes, for the running system.
 
         Returns
@@ -97,6 +93,6 @@ class CPUStats(GPUStats):
         list
              An empty list for CPU backends
         """
-        vram = []
+        vram: list[int] = []
         self._log("debug", f"GPU VRAM free: {vram}")
         return vram

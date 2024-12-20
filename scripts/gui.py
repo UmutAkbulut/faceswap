@@ -10,7 +10,7 @@ from lib.gui import (TaskBar, CliOptions, CommandNotebook, ConsoleOut, DisplayNo
                      get_images, initialize_images, initialize_config, LastSession,
                      MainMenuBar, preview_trigger, ProcessWrapper, StatusBar)
 
-logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+logger = logging.getLogger(__name__)
 
 
 class FaceswapGui(tk.Tk):
@@ -133,7 +133,7 @@ class FaceswapGui(tk.Tk):
             self._last_session.from_dict(session_state)
         logger.debug("GUI Redrawn")
 
-    def close_app(self, *args):  # pylint: disable=unused-argument
+    def close_app(self, *args):  # pylint:disable=unused-argument
         """ Close Python. This is here because the graph
             animation function continues to run even when
             tkinter has gone away """
@@ -144,7 +144,7 @@ class FaceswapGui(tk.Tk):
         if not self._config.project.confirm_close():
             return
 
-        if self._config.tk_vars["runningtask"].get():
+        if self._config.tk_vars.running_task.get():
             self.wrapper.task.terminate()
 
         self._last_session.save()
@@ -161,7 +161,7 @@ class FaceswapGui(tk.Tk):
         -------
         bool: ``True`` if user confirms close, ``False`` if user cancels close
         """
-        if not self._config.tk_vars["runningtask"].get():
+        if not self._config.tk_vars.running_task.get():
             logger.debug("No tasks currently running")
             return True
 
@@ -173,7 +173,7 @@ class FaceswapGui(tk.Tk):
         return True
 
 
-class Gui():  # pylint: disable=too-few-public-methods
+class Gui():
     """ The GUI process. """
     def __init__(self, arguments):
         self.root = FaceswapGui(arguments.debug)

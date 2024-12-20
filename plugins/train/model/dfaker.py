@@ -4,20 +4,15 @@
 import logging
 import sys
 
+# Ignore linting errors from Tensorflow's thoroughly broken import system
+from tensorflow.keras.initializers import RandomNormal  # pylint:disable=import-error
+from tensorflow.keras.layers import Input, LeakyReLU  # pylint:disable=import-error
+from tensorflow.keras.models import Model as KModel  # pylint:disable=import-error
+
 from lib.model.nn_blocks import Conv2DOutput, UpscaleBlock, ResidualBlock
-from lib.utils import get_backend
-from .original import Model as OriginalModel, KerasModel
+from .original import Model as OriginalModel
 
-if get_backend() == "amd":
-    from keras.initializers import RandomNormal
-    from keras.layers import Input, LeakyReLU
-else:
-    # Ignore linting errors from Tensorflow's thoroughly broken import system
-    from tensorflow.keras.initializers import RandomNormal  # noqa pylint:disable=import-error,no-name-in-module
-    from tensorflow.keras.layers import Input, LeakyReLU  # noqa pylint:disable=import-error,no-name-in-module
-
-
-logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+logger = logging.getLogger(__name__)
 
 
 class Model(OriginalModel):
@@ -64,4 +59,4 @@ class Model(OriginalModel):
             var_y = UpscaleBlock(64, activation="leakyrelu")(var_y)
             var_y = Conv2DOutput(1, 5, name=f"mask_out_{side}")(var_y)
             outputs.append(var_y)
-        return KerasModel([input_], outputs=outputs, name=f"decoder_{side}")
+        return KModel([input_], outputs=outputs, name=f"decoder_{side}")

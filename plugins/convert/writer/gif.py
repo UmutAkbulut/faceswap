@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """ Animated GIF writer for faceswap.py converter """
+from __future__ import annotations
 import os
-from typing import Optional, List, Tuple
+import typing as T
 
 import cv2
 import imageio
 
 from ._base import Output, logger
+
+if T.TYPE_CHECKING:
+    from imageio.core import format as im_format  # noqa:F401
 
 
 class Writer(Output):
@@ -28,15 +32,16 @@ class Writer(Output):
     def __init__(self,
                  output_folder: str,
                  total_count: int,
-                 frame_ranges: Optional[List[Tuple[int]]],
+                 frame_ranges: list[tuple[int, int]] | None,
                  **kwargs) -> None:
         logger.debug("total_count: %s, frame_ranges: %s", total_count, frame_ranges)
         super().__init__(output_folder, **kwargs)
-        self.frame_order: List[int] = self._set_frame_order(total_count, frame_ranges)
-        self._output_dimensions: Optional[str] = None  # Fix dims on 1st received frame
+        self._frame_order: list[int] = self._set_frame_order(total_count, frame_ranges)
+        # Fix dims on 1st received frame
+        self._output_dimensions: tuple[int, int] | None = None
         # Need to know dimensions of first frame, so set writer then
-        self._writer: Optional[imageio.plugins.pillowmulti.GIFFormat.Writer] = None
-        self._gif_file: Optional[str] = None  # Set filename based on first file seen
+        self._writer: imageio.plugins.pillowmulti.GIFFormat.Writer | None = None
+        self._gif_file: str | None = None  # Set filename based on first file seen
 
     @property
     def _gif_params(self) -> dict:
@@ -45,33 +50,7 @@ class Writer(Output):
         logger.debug(kwargs)
         return kwargs
 
-    @staticmethod
-    def _set_frame_order(total_count: int, frame_ranges: Optional[List[Tuple[int]]]) -> List[int]:
-        """ Obtain the full list of frames to be converted in order.
-
-        Parameters
-        ----------
-        total_count: int
-            The total number of frames to be converted
-        frame_ranges: list or ``None``
-            List of tuples for starting and end values of each frame range to be converted or
-            ``None`` if all frames are to be converted
-
-        Returns
-        -------
-        list
-            Full list of all frame indices to be converted
-        """
-        if frame_ranges is None:
-            retval = list(range(1, total_count + 1))
-        else:
-            retval = []
-            for rng in frame_ranges:
-                retval.extend(list(range(rng[0], rng[1] + 1)))
-        logger.debug("frame_order: %s", retval)
-        return retval
-
-    def _get_writer(self) -> imageio.plugins.pillowmulti.GIFFormat.Writer:
+    def _get_writer(self) -> im_format.Format.Writer:
         """ Obtain the GIF writer with the requested GIF encoding options.
 
         Returns
@@ -80,7 +59,7 @@ class Writer(Output):
             The imageio GIF writer
         """
         logger.debug("writer config: %s", self.config)
-
+        assert self._gif_file is not None
         return imageio.get_writer(self._gif_file,
                                   mode="i",
                                   **self._gif_params)
@@ -96,13 +75,14 @@ class Writer(Output):
         image: :class:`numpy.ndarray`
             The converted image to be written
         """
-        logger.trace("Received frame: (filename: '%s', shape: %s", filename, image.shape)
+        logger.trace("Received frame: (filename: '%s', shape: %s",  # type: ignore
+                     filename, image.shape)
         if not self._gif_file:
             self._set_gif_filename(filename)
             self._set_dimensions(image.shape[:2])
             self._writer = self._get_writer()
         if (image.shape[1], image.shape[0]) != self._output_dimensions:
-            image = cv2.resize(image, self._output_dimensions)  # pylint: disable=no-member
+            image = cv2.resize(image, self._output_dimensions)  # pylint:disable=no-member
         self.cache_frame(filename, image)
         self._save_from_cache()
 
@@ -140,7 +120,7 @@ class Writer(Output):
         self._gif_file = retval
         logger.info("Outputting to: '%s'", self._gif_file)
 
-    def _set_dimensions(self, frame_dims: str) -> None:
+    def _set_dimensions(self, frame_dims: tuple[int, int]) -> None:
         """ Set the attribute :attr:`_output_dimensions` based on the first frame received. This
         protects against different sized images coming in and ensure all images get written to the
         Gif at the sema dimensions. """
@@ -151,16 +131,18 @@ class Writer(Output):
     def _save_from_cache(self) -> None:
         """ Writes any consecutive frames to the GIF container that are ready to be output
         from the cache. """
-        while self.frame_order:
-            if self.frame_order[0] not in self.cache:
-                logger.trace("Next frame not ready. Continuing")
+        assert self._writer is not None
+        while self._frame_order:
+            if self._frame_order[0] not in self.cache:
+                logger.trace("Next frame not ready. Continuing")  # type: ignore
                 break
-            save_no = self.frame_order.pop(0)
+            save_no = self._frame_order.pop(0)
             save_image = self.cache.pop(save_no)
-            logger.trace("Rendering from cache. Frame no: %s", save_no)
+            logger.trace("Rendering from cache. Frame no: %s", save_no)  # type: ignore
             self._writer.append_data(save_image[:, :, ::-1])
-        logger.trace("Current cache size: %s", len(self.cache))
+        logger.trace("Current cache size: %s", len(self.cache))  # type: ignore
 
     def close(self) -> None:
         """ Close the GIF writer on completion. """
-        self._writer.close()
+        if self._writer is not None:
+            self._writer.close()

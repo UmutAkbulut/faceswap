@@ -19,7 +19,7 @@ stats module
 
 .. autosummary::
    :nosignatures:
-   
+
    ~lib.gui.analysis.stats.Calculations
    ~lib.gui.analysis.stats.GlobalSession
    ~lib.gui.analysis.stats.SessionsSummary
@@ -47,7 +47,7 @@ custom\_widgets module
 
 .. autosummary::
    :nosignatures:
-   
+
    ~lib.gui.custom_widgets.ConsoleOut
    ~lib.gui.custom_widgets.ContextMenu
    ~lib.gui.custom_widgets.MultiOption
@@ -77,7 +77,7 @@ display\_analysis module
 
 .. autosummary::
    :nosignatures:
-   
+
    ~lib.gui.display_analysis.Analysis
    ~lib.gui.display_analysis.StatsData
 
@@ -88,10 +88,32 @@ display\_analysis module
    :undoc-members:
    :show-inheritance:
 
+display\_command module
+=======================
+
+.. automodule:: lib.gui.display_command
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 display\_graph module
 =====================
 
 .. automodule:: lib.gui.display_graph
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+menu module
+===========
+.. automodule:: lib.gui.menu
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+options module
+==============
+.. automodule:: lib.gui.options
    :members:
    :undoc-members:
    :show-inheritance:
@@ -117,7 +139,7 @@ project module
 
 .. autosummary::
    :nosignatures:
-   
+
    ~lib.gui.project.LastSession
    ~lib.gui.project.Project
    ~lib.gui.project.Tasks
@@ -139,28 +161,61 @@ theme module
    :undoc-members:
    :show-inheritance:
 
-utils module
-============
+utils package
+=============
 
-.. rubric:: Module Summary
+.. rubric:: Package Summary
 
 .. autosummary::
    :nosignatures:
-   
-   ~lib.gui.utils.Config
-   ~lib.gui.utils.FileHandler
-   ~lib.gui.utils.Images
-   ~lib.gui.utils.LongRunningTask
-   ~lib.gui.utils.get_config
-   ~lib.gui.utils.get_images
-   ~lib.gui.utils.initialize_config
-   ~lib.gui.utils.initialize_images
 
-.. rubric:: Module
+   ~lib.gui.utils.config.Config
+   ~lib.gui.utils.config.initialize_config
+   ~lib.gui.utils.config.get_config
+   ~lib.gui.utils.file_handler.FileHandler
+   ~lib.gui.utils.image.Images
+   ~lib.gui.utils.image.get_images
+   ~lib.gui.utils.image.initialize_images
+   ~lib.gui.utils.misc.LongRunningTask
 
-.. automodule:: lib.gui.utils
+
+.. rubric:: config Module
+
+.. automodule:: lib.gui.utils.config
    :members:
    :undoc-members:
    :show-inheritance:
 
 
+.. rubric:: file_handler Module
+
+.. automodule:: lib.gui.utils.file_handler
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+.. rubric:: image Module
+
+.. automodule:: lib.gui.utils.image
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+.. rubric:: misc Module
+
+.. automodule:: lib.gui.utils.misc
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+wrapper module
+==============
+
+.. rubric:: Module
+
+.. automodule:: lib.gui.wrapper
+   :members:
+   :undoc-members:
+   :show-inheritance:

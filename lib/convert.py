@@ -1,14 +1,50 @@
 #!/usr/bin/env python3
 """ Converter for Faceswap """
-
+from __future__ import annotations
 import logging
+import typing as T
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
 
 from plugins.plugin_loader import PluginLoader
 
-logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+if T.TYPE_CHECKING:
+    from argparse import Namespace
+    from collections.abc import Callable
+    from lib.align.aligned_face import AlignedFace, CenteringType
+    from lib.align.detected_face import DetectedFace
+    from lib.config import FaceswapConfig
+    from lib.queue_manager import EventQueue
+    from scripts.convert import ConvertItem
+    from plugins.convert.color._base import Adjustment as ColorAdjust
+    from plugins.convert.color.seamless_clone import Color as SeamlessAdjust
+    from plugins.convert.mask.mask_blend import Mask as MaskAdjust
+    from plugins.convert.scaling._base import Adjustment as ScalingAdjust
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Adjustments:
+    """ Dataclass to hold the optional processing plugins
+
+    Parameters
+    ----------
+    color: :class:`~plugins.color._base.Adjustment`, Optional
+        The selected color processing plugin. Default: `None`
+    mask: :class:`~plugins.mask_blend.Mask`, Optional
+        The selected mask processing plugin. Default: `None`
+    seamless: :class:`~plugins.color.seamless_clone.Color`, Optional
+        The selected mask processing plugin. Default: `None`
+    sharpening: :class:`~plugins.scaling._base.Adjustment`, Optional
+        The selected mask processing plugin. Default: `None`
+    """
+    color: ColorAdjust | None = None
+    mask: MaskAdjust | None = None
+    seamless: SeamlessAdjust | None = None
+    sharpening: ScalingAdjust | None = None
 
 
 class Converter():
@@ -37,8 +73,14 @@ class Converter():
         Optional location of custom configuration ``ini`` file. If ``None`` then use the default
         config location. Default: ``None``
     """
-    def __init__(self, output_size, coverage_ratio, centering, draw_transparent, pre_encode,
-                 arguments, configfile=None):
+    def __init__(self,
+                 output_size: int,
+                 coverage_ratio: float,
+                 centering: CenteringType,
+                 draw_transparent: bool,
+                 pre_encode: Callable | None,
+                 arguments: Namespace,
+                 configfile: str | None = None) -> None:
         logger.debug("Initializing %s: (output_size: %s,  coverage_ratio: %s, centering: %s, "
                      "draw_transparent: %s, pre_encode: %s, arguments: %s, configfile: %s)",
                      self.__class__.__name__, output_size, coverage_ratio, centering,
@@ -52,18 +94,20 @@ class Converter():
         self._configfile = configfile
 
         self._scale = arguments.output_scale / 100
-        self._adjustments = dict(mask=None, color=None, seamless=None, sharpening=None)
+        self._face_scale = 1.0 - arguments.face_scale / 100.
+        self._adjustments = Adjustments()
+        self._full_frame_output: bool = arguments.writer != "patch"
 
         self._load_plugins()
         logger.debug("Initialized %s", self.__class__.__name__)
 
     @property
-    def cli_arguments(self):
+    def cli_arguments(self) -> Namespace:
         """:class:`argparse.Namespace`: The command line arguments passed to the convert
         process """
         return self._args
 
-    def reinitialize(self, config):
+    def reinitialize(self, config: FaceswapConfig) -> None:
         """ Reinitialize this :class:`Converter`.
 
         Called as part of the :mod:`~tools.preview` tool. Resets all adjustments then loads the
@@ -75,11 +119,14 @@ class Converter():
             Pre-loaded :class:`lib.config.FaceswapConfig`. used over any configuration on disk.
         """
         logger.debug("Reinitializing converter")
-        self._adjustments = dict(mask=None, color=None, seamless=None, sharpening=None)
+        self._face_scale = 1.0 - self._args.face_scale / 100.
+        self._adjustments = Adjustments()
         self._load_plugins(config=config, disable_logging=True)
         logger.debug("Reinitialized converter")
 
-    def _load_plugins(self, config=None, disable_logging=False):
+    def _load_plugins(self,
+                      config: FaceswapConfig | None = None,
+                      disable_logging: bool = False) -> None:
         """ Load the requested adjustment plugins.
 
         Loads the :mod:`plugins.converter` plugins that have been requested for this conversion
@@ -95,30 +142,32 @@ class Converter():
             suppress these messages otherwise ``False``. Default: ``False``
         """
         logger.debug("Loading plugins. config: %s", config)
-        self._adjustments["mask"] = PluginLoader.get_converter(
-            "mask",
-            "mask_blend",
-            disable_logging=disable_logging)(self._args.mask_type,
-                                             self._output_size,
-                                             self._coverage_ratio,
-                                             configfile=self._configfile,
-                                             config=config)
+        self._adjustments.mask = PluginLoader.get_converter("mask",
+                                                            "mask_blend",
+                                                            disable_logging=disable_logging)(
+                                                                self._args.mask_type,
+                                                                self._output_size,
+                                                                self._coverage_ratio,
+                                                                configfile=self._configfile,
+                                                                config=config)
 
         if self._args.color_adjustment != "none" and self._args.color_adjustment is not None:
-            self._adjustments["color"] = PluginLoader.get_converter(
-                "color",
-                self._args.color_adjustment,
-                disable_logging=disable_logging)(configfile=self._configfile, config=config)
+            self._adjustments.color = PluginLoader.get_converter("color",
+                                                                 self._args.color_adjustment,
+                                                                 disable_logging=disable_logging)(
+                                                                    configfile=self._configfile,
+                                                                    config=config)
 
-        sharpening = PluginLoader.get_converter(
-            "scaling",
-            "sharpen",
-            disable_logging=disable_logging)(configfile=self._configfile, config=config)
-        if sharpening.config.get("method", None) is not None:
-            self._adjustments["sharpening"] = sharpening
+        sharpening = PluginLoader.get_converter("scaling",
+                                                "sharpen",
+                                                disable_logging=disable_logging)(
+                                                    configfile=self._configfile,
+                                                    config=config)
+        if sharpening.config.get("method") is not None:
+            self._adjustments.sharpening = sharpening
         logger.debug("Loaded plugins: %s", self._adjustments)
 
-    def process(self, in_queue, out_queue):
+    def process(self, in_queue: EventQueue, out_queue: EventQueue):
         """ Main convert process.
 
         Takes items from the in queue, runs the relevant adjustments, patches faces to final frame
@@ -126,56 +175,82 @@ class Converter():
 
         Parameters
         ----------
-        in_queue: :class:`queue.Queue`
+        in_queue: :class:`~lib.queue_manager.EventQueue`
             The output from :class:`scripts.convert.Predictor`. Contains detected faces from the
             Faceswap model as well as the frame to be patched.
-        out_queue: :class:`queue.Queue`
+        out_queue: :class:`~lib.queue_manager.EventQueue`
             The queue to place patched frames into for writing by one of Faceswap's
             :mod:`plugins.convert.writer` plugins.
         """
         logger.debug("Starting convert process. (in_queue: %s, out_queue: %s)",
                      in_queue, out_queue)
-        log_once = False
+        logged = False
         while True:
-            items = in_queue.get()
-            if items == "EOF":
+            inbound: T.Literal["EOF"] | ConvertItem | list[ConvertItem] = in_queue.get()
+            if inbound == "EOF":
                 logger.debug("EOF Received")
                 logger.debug("Patch queue finished")
                 # Signal EOF to other processes in pool
                 logger.debug("Putting EOF back to in_queue")
-                in_queue.put(items)
+                in_queue.put(inbound)
                 break
 
-            if isinstance(items, dict):
-                items = [items]
+            items = inbound if isinstance(inbound, list) else [inbound]
             for item in items:
-                logger.trace("Patch queue got: '%s'", item["filename"])
+                logger.trace("Patch queue got: '%s'",  # type: ignore[attr-defined]
+                             item.inbound.filename)
                 try:
                     image = self._patch_image(item)
-                except Exception as err:  # pylint: disable=broad-except
+                except Exception as err:  # pylint:disable=broad-except
                     # Log error and output original frame
                     logger.error("Failed to convert image: '%s'. Reason: %s",
-                                 item["filename"], str(err))
-                    image = item["image"]
+                                 item.inbound.filename, str(err))
+                    image = item.inbound.image
 
-                    loglevel = logger.trace if log_once else logger.warning
-                    loglevel("Convert error traceback:", exc_info=True)
-                    log_once = True
+                    lvl = logger.trace if logged else logger.warning  # type: ignore[attr-defined]
+                    lvl("Convert error traceback:", exc_info=True)
+                    logged = True
                     # UNCOMMENT THIS CODE BLOCK TO PRINT TRACEBACK ERRORS
-                    import sys ; import traceback
-                    exc_info = sys.exc_info() ; traceback.print_exception(*exc_info)
-                logger.trace("Out queue put: %s", item["filename"])
-                out_queue.put((item["filename"], image))
+                    # import sys; import traceback
+                    # exc_info = sys.exc_info(); traceback.print_exception(*exc_info)
+                logger.trace("Out queue put: %s",  # type: ignore[attr-defined]
+                             item.inbound.filename)
+                out_queue.put((item.inbound.filename, image))
         logger.debug("Completed convert process")
 
-    def _patch_image(self, predicted):
+    def _get_warp_matrix(self, matrix: np.ndarray, size: int) -> np.ndarray:
+        """ Obtain the final scaled warp transformation matrix based on face scaling from the
+        original transformation matrix
+
+        Parameters
+        ----------
+        matrix: :class:`numpy.ndarray`
+            The transformation for patching the swapped face back onto the output frame
+        size: int
+            The size of the face patch, in pixels
+
+        Returns
+        -------
+        :class:`numpy.ndarray`
+            The final transformation matrix with any scaling applied
+        """
+        if self._face_scale == 1.0:
+            mat = matrix
+        else:
+            mat = matrix * self._face_scale
+            patch_center = (size / 2, size / 2)
+            mat[..., 2] += (1 - self._face_scale) * np.array(patch_center)
+
+        return mat
+
+    def _patch_image(self, predicted: ConvertItem) -> np.ndarray | list[bytes]:
         """ Patch a swapped face onto a frame.
 
         Run selected adjustments and swap the faces in a frame.
 
         Parameters
         ----------
-        predicted: dict
+        predicted: :class:`~scripts.convert.ConvertItem`
             The output from :class:`scripts.convert.Predictor`.
 
         Returns
@@ -186,21 +261,70 @@ class Converter():
             function (if it has one)
 
         """
-        logger.trace("Patching image: '%s'", predicted["filename"])
-        frame_size = (predicted["image"].shape[1], predicted["image"].shape[0])
+        logger.trace("Patching image: '%s'",  # type: ignore[attr-defined]
+                     predicted.inbound.filename)
+        frame_size = (predicted.inbound.image.shape[1], predicted.inbound.image.shape[0])
         new_image, background = self._get_new_image(predicted, frame_size)
-        patched_face = self._post_warp_adjustments(background, new_image)
-        patched_face = self._scale_image(patched_face)
-        patched_face *= 255.0
-        patched_face = np.rint(patched_face,
-                               out=np.empty(patched_face.shape, dtype="uint8"),
-                               casting='unsafe')
-        if self._writer_pre_encode is not None:
-            patched_face = self._writer_pre_encode(patched_face)
-        logger.trace("Patched image: '%s'", predicted["filename"])
-        return patched_face
 
-    def _get_new_image(self, predicted, frame_size):
+        if self._full_frame_output:
+            patched_face = self._post_warp_adjustments(background, new_image)
+            patched_face = self._scale_image(patched_face)
+            patched_face *= 255.0
+            patched_face = np.rint(patched_face,
+                                   out=np.empty(patched_face.shape, dtype="uint8"),
+                                   casting='unsafe')
+        else:
+            patched_face = new_image
+
+        if self._writer_pre_encode is None:
+            retval: np.ndarray | list[bytes] = patched_face
+        else:
+            kwargs: dict[str, T.Any] = {}
+            if self.cli_arguments.writer == "patch":
+                kwargs["canvas_size"] = (background.shape[1], background.shape[0])
+                kwargs["matrices"] = np.array([self._get_warp_matrix(face.adjusted_matrix,
+                                                                     patched_face.shape[1])
+                                               for face in predicted.reference_faces],
+                                              dtype="float32")
+            retval = self._writer_pre_encode(patched_face, **kwargs)
+        logger.trace("Patched image: '%s'",  # type: ignore[attr-defined]
+                     predicted.inbound.filename)
+        return retval
+
+    def _warp_to_frame(self,
+                       reference: AlignedFace,
+                       face: np.ndarray,
+                       frame: np.ndarray,
+                       multiple_faces: bool) -> None:
+        """ Perform affine transformation to place a face patch onto the given frame.
+
+        Affine is done in place on the `frame` array, so this function does not return a value
+
+        Parameters
+        ----------
+        reference: :class:`lib.align.AlignedFace`
+            The object holding the original aligned face
+        face: :class:`numpy.ndarray`
+            The swapped face patch
+        frame: :class:`numpy.ndarray`
+            The frame to affine the face onto
+        multiple_faces: bool
+            Controls the border mode to use. Uses BORDER_CONSTANT if there is only 1 face in
+            the image, otherwise uses the inferior BORDER_TRANSPARENT
+        """
+        # Warp face with the mask
+        mat = self._get_warp_matrix(reference.adjusted_matrix, face.shape[0])
+        border = cv2.BORDER_TRANSPARENT if multiple_faces else cv2.BORDER_CONSTANT
+        cv2.warpAffine(face,
+                       mat,
+                       (frame.shape[1], frame.shape[0]),
+                       frame,
+                       flags=cv2.WARP_INVERSE_MAP | reference.interpolators[1],
+                       borderMode=border)
+
+    def _get_new_image(self,
+                       predicted: ConvertItem,
+                       frame_size: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
         """ Get the new face from the predictor and apply pre-warp manipulations.
 
         Applies any requested adjustments to the raw output of the Faceswap model
@@ -208,7 +332,7 @@ class Converter():
 
         Parameters
         ----------
-        predicted: dict
+        predicted: :class:`~scripts.convert.ConvertItem`
             The output from :class:`scripts.convert.Predictor`.
         frame_size: tuple
             The (`width`, `height`) of the final frame in pixels
@@ -220,39 +344,47 @@ class Converter():
         background:  :class: `numpy.ndarray`
             The original frame
         """
-        logger.trace("Getting: (filename: '%s', faces: %s)",
-                     predicted["filename"], len(predicted["swapped_faces"]))
+        logger.trace("Getting: (filename: '%s', faces: %s)",  # type: ignore[attr-defined]
+                     predicted.inbound.filename, len(predicted.swapped_faces))
 
         placeholder = np.zeros((frame_size[1], frame_size[0], 4), dtype="float32")
-        background = predicted["image"] / np.array(255.0, dtype="float32")
-        placeholder[:, :, :3] = background
+        if self._full_frame_output:
+            background = predicted.inbound.image / np.array(255.0, dtype="float32")
+            placeholder[:, :, :3] = background
+        else:
+            faces = []  # Collect the faces into final array
+            background = placeholder  # Used for obtaining original frame dimensions
 
-        for new_face, detected_face, reference_face in zip(predicted["swapped_faces"],
-                                                           predicted["detected_faces"],
-                                                           predicted["reference_faces"]):
+        for new_face, detected_face, reference_face in zip(predicted.swapped_faces,
+                                                           predicted.inbound.detected_faces,
+                                                           predicted.reference_faces):
             predicted_mask = new_face[:, :, -1] if new_face.shape[2] == 4 else None
             new_face = new_face[:, :, :3]
-            interpolator = reference_face.interpolators[1]
-
             new_face = self._pre_warp_adjustments(new_face,
                                                   detected_face,
                                                   reference_face,
                                                   predicted_mask)
 
-            # Warp face with the mask
-            cv2.warpAffine(new_face,
-                           reference_face.adjusted_matrix,
-                           frame_size,
-                           placeholder,
-                           flags=cv2.WARP_INVERSE_MAP | interpolator,
-                           borderMode=cv2.BORDER_CONSTANT)
+            if self._full_frame_output:
+                self._warp_to_frame(reference_face,
+                                    new_face, placeholder,
+                                    len(predicted.swapped_faces) > 1)
+            else:
+                faces.append(new_face)
 
-        logger.trace("Got filename: '%s'. (placeholders: %s)",
-                     predicted["filename"], placeholder.shape)
+        if not self._full_frame_output:
+            placeholder = np.array(faces, dtype="float32")
+
+        logger.trace("Got filename: '%s'. (placeholders: %s)",  # type: ignore[attr-defined]
+                     predicted.inbound.filename, placeholder.shape)
 
         return placeholder, background
 
-    def _pre_warp_adjustments(self, new_face, detected_face, reference_face, predicted_mask):
+    def _pre_warp_adjustments(self,
+                              new_face: np.ndarray,
+                              detected_face: DetectedFace,
+                              reference_face: AlignedFace,
+                              predicted_mask: np.ndarray | None) -> np.ndarray:
         """ Run any requested adjustments that can be performed on the raw output from the Faceswap
         model.
 
@@ -277,21 +409,25 @@ class Converter():
             The face output from the Faceswap Model with any requested pre-warp adjustments
             performed.
         """
-        logger.trace("new_face shape: %s, predicted_mask shape: %s", new_face.shape,
-                     predicted_mask.shape if predicted_mask is not None else None)
-        old_face = reference_face.face[..., :3] / 255.0
+        logger.trace("new_face shape: %s, predicted_mask shape: %s",  # type: ignore[attr-defined]
+                     new_face.shape, predicted_mask.shape if predicted_mask is not None else None)
+        old_face = T.cast(np.ndarray, reference_face.face)[..., :3] / 255.0
         new_face, raw_mask = self._get_image_mask(new_face,
                                                   detected_face,
                                                   predicted_mask,
                                                   reference_face)
-        if self._adjustments["color"] is not None:
-            new_face = self._adjustments["color"].run(old_face, new_face, raw_mask)
-        if self._adjustments["seamless"] is not None:
-            new_face = self._adjustments["seamless"].run(old_face, new_face, raw_mask)
-        logger.trace("returning: new_face shape %s", new_face.shape)
+        if self._adjustments.color is not None:
+            new_face = self._adjustments.color.run(old_face, new_face, raw_mask)
+        if self._adjustments.seamless is not None:
+            new_face = self._adjustments.seamless.run(old_face, new_face, raw_mask)
+        logger.trace("returning: new_face shape %s", new_face.shape)  # type: ignore[attr-defined]
         return new_face
 
-    def _get_image_mask(self, new_face, detected_face, predicted_mask, reference_face):
+    def _get_image_mask(self,
+                        new_face: np.ndarray,
+                        detected_face: DetectedFace,
+                        predicted_mask: np.ndarray | None,
+                        reference_face: AlignedFace) -> tuple[np.ndarray, np.ndarray]:
         """ Return any selected image mask
 
         Places the requested mask into the new face's Alpha channel.
@@ -312,22 +448,26 @@ class Converter():
         -------
         :class:`numpy.ndarray`
             The swapped face with the requested mask added to the Alpha channel
+        :class:`numpy.ndarray`
+            The raw mask with no erosion or blurring applied
         """
-        logger.trace("Getting mask. Image shape: %s", new_face.shape)
+        logger.trace("Getting mask. Image shape: %s", new_face.shape)  # type: ignore[attr-defined]
         if self._args.mask_type not in ("none", "predicted"):
             mask_centering = detected_face.mask[self._args.mask_type].stored_centering
         else:
             mask_centering = "face"  # Unused but requires a valid value
-        crop_offset = (reference_face.pose.offset[self._centering] -
-                       reference_face.pose.offset[mask_centering])
-        mask, raw_mask = self._adjustments["mask"].run(detected_face, crop_offset, self._centering,
-                                                       predicted_mask=predicted_mask)
-        logger.trace("Adding mask to alpha channel")
+        assert self._adjustments.mask is not None
+        mask, raw_mask = self._adjustments.mask.run(detected_face,
+                                                    reference_face.pose.offset[mask_centering],
+                                                    reference_face.pose.offset[self._centering],
+                                                    self._centering,
+                                                    predicted_mask=predicted_mask)
+        logger.trace("Adding mask to alpha channel")  # type: ignore[attr-defined]
         new_face = np.concatenate((new_face, mask), -1)
-        logger.trace("Got mask. Image shape: %s", new_face.shape)
+        logger.trace("Got mask. Image shape: %s", new_face.shape)  # type: ignore[attr-defined]
         return new_face, raw_mask
 
-    def _post_warp_adjustments(self, background, new_image):
+    def _post_warp_adjustments(self, background: np.ndarray, new_image: np.ndarray) -> np.ndarray:
         """ Perform any requested adjustments to the swapped faces after they have been transformed
         into the final frame.
 
@@ -343,8 +483,8 @@ class Converter():
         :class:`numpy.ndarray`
             The final merged and swapped frame with any requested post-warp adjustments applied
         """
-        if self._adjustments["sharpening"] is not None:
-            new_image = self._adjustments["sharpening"].run(new_image)
+        if self._adjustments.sharpening is not None:
+            new_image = self._adjustments.sharpening.run(new_image)
 
         if self._draw_transparent:
             frame = new_image
@@ -359,7 +499,7 @@ class Converter():
         np.clip(frame, 0.0, 1.0, out=frame)
         return frame
 
-    def _scale_image(self, frame):
+    def _scale_image(self, frame: np.ndarray) -> np.ndarray:
         """ Scale the final image if requested.
 
         If output scale has been requested in command line arguments, scale the output
@@ -377,11 +517,11 @@ class Converter():
         """
         if self._scale == 1:
             return frame
-        logger.trace("source frame: %s", frame.shape)
+        logger.trace("source frame: %s", frame.shape)  # type: ignore[attr-defined]
         interp = cv2.INTER_CUBIC if self._scale > 1 else cv2.INTER_AREA
         dims = (round((frame.shape[1] / 2 * self._scale) * 2),
                 round((frame.shape[0] / 2 * self._scale) * 2))
         frame = cv2.resize(frame, dims, interpolation=interp)
-        logger.trace("resized frame: %s", frame.shape)
+        logger.trace("resized frame: %s", frame.shape)  # type: ignore[attr-defined]
         np.clip(frame, 0.0, 1.0, out=frame)
         return frame

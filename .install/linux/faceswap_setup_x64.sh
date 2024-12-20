@@ -12,7 +12,7 @@ DIR_CONDA="$HOME/miniconda3"
 CONDA_EXECUTABLE="${DIR_CONDA}/bin/conda"
 CONDA_TO_PATH=false
 ENV_NAME="faceswap"
-PYENV_VERSION="3.9"
+PYENV_VERSION="3.10"
 
 DIR_FACESWAP="$HOME/faceswap"
 VERSION="nvidia"
@@ -32,6 +32,13 @@ info () {
     # output info message
     while read -r line ; do
         echo -e "\e[32mINFO\e[97m    $line"
+    done <<< "$(echo "$1" | fmt -cu -w 70)"
+}
+
+warn () {
+    # output warning message
+    while read -r line ; do
+        echo -e "\e[33mWARNING\e[97m $line"
     done <<< "$(echo "$1" | fmt -cu -w 70)"
 }
 
@@ -127,11 +134,11 @@ ask_version() {
     # Ask which version of faceswap to install
     while true; do
         default=1
-        read -rp $'\e[36m'"Select: 1 (NVIDIA), 2 (AMD), 3 (CPU) [default: $default]: "$'\e[97m' vers
+        read -rp $'\e[36mSelect:\t1: NVIDIA\n\t2: AMD (ROCm)\n\t3: CPU\n'"[default: $default]: "$'\e[97m' vers
         vers="${vers:-${default}}"
         case $vers in
             1) VERSION="nvidia" ; break ;;
-            2) VERSION="amd" ; PYENV_VERSION="3.8" ; break ;;
+            2) VERSION="rocm" ; break ;;
             3) VERSION="cpu" ; break ;;
             * ) echo "Invalid selection." ;;
         esac
@@ -259,7 +266,7 @@ conda_opts () {
     echo ""
     info "Faceswap will be installed inside a Conda Environment. If an environment already\
     exists with the name specified then it will be deleted."
-    ask "Please specify a name for the Faceswap Conda Environmnet" "ENV_NAME"
+    ask "Please specify a name for the Faceswap Conda Environment" "ENV_NAME"
 }
 
 faceswap_opts () {
@@ -273,6 +280,12 @@ faceswap_opts () {
     latest graphics card drivers installed from the relevant vendor. Please select the version\
     of Faceswap you wish to install."
     ask_version
+    if [ $VERSION == "rocm" ] ; then
+        warn "ROCm support is experimental. Please make sure that your GPU is supported by ROCm and that \
+        ROCm has been installed on your system before proceeding. Installation instructions: \
+        https://docs.amd.com/bundle/ROCm_Installation_Guidev5.0/page/Overview_of_ROCm_Installation_Methods.html"
+        sleep 2
+    fi
 }
 
 post_install_opts() {
@@ -309,6 +322,10 @@ review() {
     fi
     echo "        - Faceswap will be installed in '$DIR_FACESWAP'"
     echo "        - Installing for '$VERSION'"
+    if [ $VERSION == "rocm" ] ; then
+        echo -e "          \e[33m- Note: Please ensure that ROCm is supported by your GPU\e[97m"
+        echo -e "          \e[33m  and is installed prior to proceeding.\e[97m"
+    fi
     if $DESKTOP ; then echo "        - A Desktop shortcut will be created" ; fi
     if ! ask_yesno "Do you wish to continue?" "No" ;  then exit ; fi
 }
@@ -346,7 +363,7 @@ delete_env() {
 }
 
 create_env() {
-    # Create Python 3.8 env for faceswap
+    # Create Python 3.10 env for faceswap
     delete_env
     info "Creating Conda Virtual Environment..."
     yellow ; "$CONDA_EXECUTABLE" create -n "$ENV_NAME" -q python="$PYENV_VERSION" -y
@@ -363,7 +380,9 @@ activate_env() {
 install_git() {
     # Install git inside conda environment
     info "Installing Git..."
-    yellow ; conda install git -q -y
+    # TODO On linux version 2.45.2 makes the font fixed TK pull in Python from
+    # graalpy, which breaks pretty much everything
+    yellow ; conda install "git<2.45" -q -y
 }
 
 delete_faceswap() {
@@ -384,8 +403,7 @@ clone_faceswap() {
 setup_faceswap() {
     # Run faceswap setup script
     info "Setting up Faceswap..."
-    if [ $VERSION != "cpu" ] ; then args="--$VERSION" ; else args="" ; fi
-    python "$DIR_FACESWAP/setup.py" --installer $args
+    python -u "$DIR_FACESWAP/setup.py" --installer --$VERSION
 }
 
 create_gui_launcher () {
